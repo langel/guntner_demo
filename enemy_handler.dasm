@@ -1,0 +1,394 @@
+;;;; Constants
+
+ENEMY_RAM			= $0300
+ENEMY_HIT_PALETTE_FRAMES	= #$03
+
+
+
+;;;; enemy types
+;	0 = [nothing]
+;	1 = starglasses	2x2
+;	2 = skully	2x2
+;	3 = maggs	2x1
+;	4 = birb	1x1
+;	5 = bullet0	1x1
+
+
+	;include "enemy_birb.dasm"
+
+        
+
+
+        
+sprite_4_cleanup_for_next: subroutine
+	lda #$04 ; move first sprite over 4 pixels
+        clc
+	adc $0200+$03,y
+        sta $0200+$03,y
+	lda #$03 ; move first sprite down 3 pixels
+        clc
+        adc $0200+$00,y
+        sta $0200+$00,y
+        ; move other sprites off screen
+	lda #$ff
+        sta $0200+$04,y
+        sta $0200+$08,y
+        sta $0200+$0c,y
+        sta $0200+$07,y
+        sta $0200+$0b,y
+        sta $0200+$0f,y
+	jmp update_enemies_handler_next
+	
+        
+clear_all_enemies: subroutine
+	ldx #$00
+        txa
+.enemy_loop
+	sta ENEMY_RAM,x
+        inx
+        bne .enemy_loop
+	ldx #$20
+.sprite_loop
+	sta $0200,x
+        inx
+        bne .sprite_loop
+        rts
+        
+        
+enemy_death: subroutine
+        ; clear OAM data
+	ldx enemy_handler_pos
+        lda ENEMY_RAM+7,x
+        tax
+        lda #$00
+        sta $0200+0,x
+        sta $0200+1,x
+        sta $0200+2,x
+        sta $0200+3,x
+        ; clear enemy data
+	ldx enemy_handler_pos
+        sta ENEMY_RAM,x
+        sta ENEMY_RAM+1,x
+        sta ENEMY_RAM+2,x
+        sta ENEMY_RAM+3,x
+        sta ENEMY_RAM+4,x
+        sta ENEMY_RAM+5,x
+        sta ENEMY_RAM+6,x
+        sta ENEMY_RAM+7,x
+        rts
+        
+        
+        
+update_enemies: subroutine
+	; if player is dead despawn
+	lda player_health
+        cmp #$00
+        beq player_dead_enemies_despawn
+	; cycle through all the slots
+	lda #$00
+        sta enemy_handler_pos
+.handler_loop
+        ldx enemy_handler_pos
+	; get enemy type
+        lda ENEMY_RAM,x
+        ; not defined go next slot
+        cmp #$00
+        beq .handler_next
+	; set OAM position in zero page
+        lda ENEMY_RAM+7,x
+        sta enemy_temp_oam_x
+	; get enemy type
+        lda ENEMY_RAM,x
+        asl
+        tax
+        lda ENEMY_METHODS_LOOKUP_TABLE,x
+        sta enemy_temp_addr_lo
+        inx
+        lda ENEMY_METHODS_LOOKUP_TABLE,x
+        sta enemy_temp_addr_hi
+        jmp (enemy_temp_addr_lo)
+        ;ENEMY_TYPE_SWITCH $01,birb_cycle
+update_enemies_handler_next:
+.handler_next
+        ; go to next enemy slot
+	lda #$08
+        clc
+        adc enemy_handler_pos
+        bcs .handler_core_end
+        sta enemy_handler_pos
+        jmp .handler_loop
+.handler_core_end
+	rts
+        
+        
+        
+player_dead_enemies_despawn: subroutine
+	lda player_death_flag
+        cmp #$00
+        bne .dont_init
+        lda #$10
+        sta enemy_temp_temp
+.dont_init
+	inc enemy_temp_temp
+	inc enemy_temp_temp
+	inc enemy_temp_temp
+	lda enemy_temp_temp
+        lsr
+        lsr
+        lsr
+        sta enemy_handler_pos
+        ldx #$23
+.loop
+        lda $0200,x
+        cmp #$00
+        ;beq .do_nothing
+        sec
+        sbc enemy_handler_pos
+        bmi .despawn
+        sta $0200,x
+        jmp .do_nothing
+.despawn
+	lda #$ff
+        sta $0200-3,x
+	lda #$00
+        sta $0200,x
+.do_nothing
+        inx
+        inx
+        inx
+        inx
+        cpx #$03
+        bne .loop
+        rts
+        
+        
+
+        
+        
+        
+crossbones_cycle: subroutine
+	ldx enemy_handler_pos
+        inc ENEMY_RAM+5,x
+        lda ENEMY_RAM+5,x
+        lsr
+        lsr
+        lsr
+        sta ENEMY_RAM+3,x
+        tay
+        ldy enemy_temp_oam_x
+        lda $0200,y
+        sec
+        sbc ENEMY_RAM+3,x
+        bcc .crossbones_death
+        sta $0200,y
+        lda #$0b
+        sta $0201,y
+        lda #$03
+        sta $0202,y
+        jmp .crossbones_done
+.crossbones_death
+        jsr enemy_death
+.crossbones_done
+	jmp update_enemies_handler_next
+        
+        
+
+        
+      
+     
+        
+        
+get_enemy_slot_1_sprite: subroutine
+.slot0
+	lda $0300
+        cmp #$00
+        bne .slot1
+        lda #$00
+        jmp .found_slot
+.slot1
+	lda $0308
+        cmp #$00
+        bne .slot2
+        lda #$08
+        jmp .found_slot
+.slot2
+	lda $0310
+        cmp #$00
+        bne .slot3
+        lda #$10
+        jmp .found_slot
+.slot3
+	lda $0318
+        cmp #$00
+        bne .slot4
+        lda #$18
+        jmp .found_slot
+.slot4
+	lda $0320
+        cmp #$00
+        bne .slot5
+        lda #$20
+        jmp .found_slot
+.slot5
+	lda $0328
+        cmp #$00
+        bne .slot6
+        lda #$28
+        jmp .found_slot
+.slot6
+	lda $0330
+        cmp #$00
+        bne .slot7
+        lda #$30
+        jmp .found_slot
+.slot7
+	lda $0338
+        cmp #$00
+        bne .slot8
+        lda #$38
+        jmp .found_slot
+.slot8
+	lda $0340
+        cmp #$00
+        bne .slot9
+        lda #$40
+        jmp .found_slot
+.slot9
+	lda $0348
+        cmp #$00
+        bne .slota
+        lda #$48
+        jmp .found_slot
+.slota
+	lda $0350
+        cmp #$00
+        bne .slotb
+        lda #$50
+        jmp .found_slot
+.slotb
+	lda $0358
+        cmp #$00
+        bne .slotc
+        lda #$58
+        jmp .found_slot
+.slotc
+	lda $0360
+        cmp #$00
+        bne .slotd
+        lda #$60
+        jmp .found_slot
+.slotd
+	lda $0368
+        cmp #$00
+        bne .slote
+        lda #$68
+        jmp .found_slot
+.slote
+	lda $0370
+        cmp #$00
+        bne .slotf
+        lda #$70
+        jmp .found_slot
+.slotf
+	lda $0378
+        cmp #$00
+        bne .slot_wtf_no
+        lda #$78
+        jmp .found_slot
+.slot_wtf_no
+;return #$ff for FALSE
+	lda #$ff
+.found_slot
+	rts
+        
+        
+get_enemy_slot_2_sprite: subroutine
+.slot0
+	lda $0380
+        cmp #$00
+        bne .slot1
+        lda #$80
+        jmp .found_slot
+.slot1
+	lda $0388
+        cmp #$00
+        bne .slot2
+        lda #$88
+        jmp .found_slot
+.slot2
+	lda $0390
+        cmp #$00
+        bne .slot3
+        lda #$90
+        jmp .found_slot
+.slot3
+	lda $0398
+        cmp #$00
+        bne .slot_wtf_no
+        lda #$98
+        jmp .found_slot
+.slot_wtf_no
+;return #$ff for FALSE
+	lda #$ff
+.found_slot
+	rts
+        
+        
+get_enemy_slot_4_sprite: subroutine
+.slot0
+	lda $03a0
+        cmp #$00
+        bne .slot1
+        lda #$a0
+        jmp .found_slot
+.slot1
+	lda $03a8
+        cmp #$00
+        bne .slot2
+        lda #$a8
+        jmp .found_slot
+.slot2
+	lda $03b0
+        cmp #$00
+        bne .slot3
+        lda #$b0
+        jmp .found_slot
+.slot3
+	lda $03b8
+        cmp #$00
+        bne .slot4
+        lda #$b8
+        jmp .found_slot
+.slot4
+	lda $03c0
+        cmp #$00
+        bne .slot5
+        lda #$c0
+        jmp .found_slot
+.slot5
+	lda $03c8
+        cmp #$00
+        bne .slot6
+        lda #$c8
+        jmp .found_slot
+.slot6
+	lda $03d0
+        cmp #$00
+        bne .slot7
+        lda #$d0
+        jmp .found_slot
+.slot7
+	lda $03d8
+        cmp #$00
+        bne .slot_wtf_no
+        lda #$d8
+        jmp .found_slot
+.slot_wtf_no
+;return #$ff for FALSE
+	lda #$ff
+.found_slot
+	rts
+        
+        
+
+

@@ -1,0 +1,644 @@
+
+;;;;;; Constants
+
+bullet_cooldown_length	= $14
+
+
+bullet0		= $020c
+bullet1		= $0210
+bullet2		= $0214
+bullet3		= $0218
+bullet4		= $021c
+
+player_bullet_sprite	.byte #$79
+
+controller_input	.byte #$ff
+player_power		.byte #$ff
+
+bullet_data	= $0500
+
+
+        
+
+
+;;; player bullet struct
+; byte 0 : x pos
+; byte 1 : y pos
+; byte 2 : x speed
+; byte 3 : y speed
+
+; bullets are sprites #$03 - #$07 
+;;; bullet directions, sprite base address
+; 03   9 o'clock -7,  0, $020c
+; 04  10 o'clock -6, -3, $0210
+; 05   8 o'clock -6. +3, $0214
+; 06  11 o'clock -3, -6, $0218
+; 07   7 o'clock -3, +6, $021c
+
+
+player_bullets_init:
+	lda #bullet_cooldown_length
+        sta bullet_cooldown
+        rts
+        
+        
+player_bullet_collision_handler: subroutine
+	stx player_bullet_collision_temp_x
+	clc
+        lda collision_0_x
+        adc collision_0_w
+        bcc .in_bounds; make sure x+w is not less than x
+        lda #$00
+        rts
+.in_bounds        
+        ; bullet dimensiosn don't change
+        lda #$04
+        sta collision_1_w
+        sta collision_1_h
+        
+        ; accumulate number of bullets colliding in x register
+        ldx #$00
+        
+        lda bullet0 + 3
+        cmp #$00
+        beq .bullet0_skip
+        sta collision_1_x
+        lda bullet0 + 0
+        sta collision_1_y
+        jsr detect_collision
+        cmp #$00
+        beq .bullet0_skip
+        inx
+        jsr bullet0_despawn
+.bullet0_skip        
+
+        lda bullet1 + 3
+        cmp #$00
+        beq .bullet1_skip
+        sta collision_1_x
+        lda bullet1 + 0
+        sta collision_1_y
+        jsr detect_collision
+        cmp #$00
+        beq .bullet1_skip
+        inx
+        jsr bullet1_despawn
+.bullet1_skip
+
+        lda bullet2 + 3
+        cmp #$00
+        beq .bullet2_skip
+        sta collision_1_x
+        lda bullet2 + 0
+        sta collision_1_y
+        jsr detect_collision
+        cmp #$00
+        beq .bullet2_skip
+        inx
+        jsr bullet2_despawn
+.bullet2_skip
+
+        lda bullet3 + 3
+        cmp #$00
+        beq .bullet3_skip
+        sta collision_1_x
+        lda bullet3 + 0
+        sta collision_1_y
+        jsr detect_collision
+        cmp #$00
+        beq .bullet3_skip
+        inx
+        jsr bullet3_despawn
+.bullet3_skip
+
+        lda bullet4 + 3
+        cmp #$00
+        beq .bullet4_skip
+        sta collision_1_x
+        lda bullet4 + 0
+        sta collision_1_y
+        jsr detect_collision
+        cmp #$00
+        beq .bullet4_skip
+        inx
+        jsr bullet4_despawn
+.bullet4_skip
+
+	; send number of hits back to caller
+	txa
+        ldx player_bullet_collision_temp_x
+	rts
+        
+        
+bullet0_despawn: subroutine
+	lda #$00
+        sta bullet0
+        sta bullet0 + 3
+        sta bullet_data+0
+        lda #$80
+        sta bullet0 + 1
+        rts
+bullet1_despawn: subroutine
+	lda #$00
+        sta bullet1
+        sta bullet1 + 3
+        sta bullet_data+4
+        lda #$80
+        sta bullet1 + 1
+        rts
+bullet2_despawn: subroutine
+	lda #$00
+        sta bullet2
+        sta bullet2 + 3
+        sta bullet_data+8
+        lda #$80
+        sta bullet2 + 1
+        rts
+bullet3_despawn: subroutine
+	lda #$00
+        sta bullet3
+        sta bullet3 + 3
+        sta bullet_data+12
+        lda #$80
+        sta bullet3 + 1
+        rts
+bullet4_despawn: subroutine
+	lda #$00
+        sta bullet4
+        sta bullet4 + 3
+        sta bullet_data+16
+        lda #$80
+        sta bullet4 + 1
+        rts
+
+
+; temp solution unti
+player_bullets_despawn:
+	jsr bullet0_despawn
+	jsr bullet1_despawn
+	jsr bullet2_despawn
+	jsr bullet3_despawn
+	jsr bullet4_despawn
+        rts
+        
+player_gun_normal_fire: subroutine
+	ldx #$00
+.bullet_loop
+	lda bullet_data,x
+        ; check if bullet is spawned
+        cmp #$00
+        bne .next
+        ; trigger pewpew
+	jsr apu_trigger_pewpew
+        lda player_x_hi
+        sta bullet_data+0,x
+        lda player_y_hi
+        clc
+        adc #$04
+        sta bullet_data+1,x
+        lda #251
+        sta bullet_data+2,x
+        lda #$00
+        sta bullet_data+3,x
+        ; sprite
+        lda #$79
+        sta bullet0+1,x
+        ; palette
+        lda #$01
+        sta bullet0+2,x
+        jmp .done
+.next
+	inx
+        inx
+        inx
+        inx
+        cpx #$14
+        bne .bullet_loop
+.done
+	rts
+        
+        
+player_gun_turbo_fire: subroutine
+	lda wtf
+        and #%0000010
+        cmp #$02
+        bne .no_damage
+        lda #$03
+        sta player_damage
+        jsr player_take_damage
+.no_damage
+	ldx #$00
+.bullet_loop
+	lda bullet_data,x
+        ; check if bullet is spawned
+        cmp #$00
+        bne .next
+        ; trigger pewpew
+	jsr apu_trigger_pewpew
+        ; set x,y position
+        lda player_x_hi
+        sta bullet_data+0,x
+        lda player_y_hi
+        clc
+        adc #$04
+        sta bullet_data+1,x
+        ; direction
+        jsr player_gun_turbo_init_dir
+        ; sprite
+        lda #$79
+        sta bullet0+1,x
+        ; palette
+        lda #$01
+        sta bullet0+2,x
+        jmp .done
+.next
+	inx
+        inx
+        inx
+        inx
+        cpx #$14
+        bne .bullet_loop
+.done
+	
+	rts
+        
+player_gun_turbo_init_dir: subroutine
+	; 7,0 : 6,3 : 3,6
+	cpx #$00
+        bne .not0
+        lda #248
+        sta bullet_data+2,x
+        lda #$00
+        sta bullet_data+3,x
+        rts
+.not0
+	cpx #$04
+        bne .not1
+        lda #249
+        sta bullet_data+2,x
+        lda #252
+        sta bullet_data+3,x
+        rts
+.not1
+	cpx #$08
+        bne .not2
+        lda #252
+        sta bullet_data+2,x
+        lda #$06
+        sta bullet_data+3,x
+        rts
+.not2
+	cpx #$0c
+        bne .not3
+        lda #249
+        sta bullet_data+2,x
+        lda #$03
+        sta bullet_data+3,x
+        rts
+.not3
+	cpx #$10
+        bne .not4
+        lda #252
+        sta bullet_data+2,x
+        lda #249
+        sta bullet_data+3,x
+        rts
+.not4
+	rts
+        
+        
+player_bullets_check_controls: subroutine
+	; check if a button is pressed
+        lda player_a
+        cmp #$ff
+        bne .not_turbo
+        jsr player_gun_turbo_fire
+        jmp .done
+.not_turbo        
+	; check if b button has been pressed
+	lda player_b_d
+        cmp #$ff
+        bne .done
+        ; XXX check gun type and go to that handler
+        jsr player_gun_normal_fire
+.done
+	rts
+        
+        
+player_bullets_update: subroutine
+	ldx #$00
+.bullet_loop
+	; check if spawned
+	lda bullet_data+0,x
+        cmp #$00
+        beq .next
+        ; check for despawn
+        ; is x < 8
+	lda bullet_data+0,x
+        cmp #$08
+        bcc .despawn
+        ; is y > 180
+	lda bullet_data+1,x
+        cmp #180
+        bcs .despawn
+              
+	; move x
+	lda bullet_data+0,x
+        clc
+        adc bullet_data+2,x
+        sta bullet_data+0,x
+        sta bullet0+3,x
+        ; move y
+	lda bullet_data+1,x
+        clc
+        adc bullet_data+3,x
+        sta bullet_data+1,x
+        sta bullet0+0,x
+        jmp .next
+.despawn
+	lda #$00
+        sta bullet_data+0,x
+        sta bullet_data+1,x
+        sta bullet_data+2,x
+        sta bullet_data+3,x
+        sta bullet0+0,x
+        sta bullet0+1,x
+        sta bullet0+2,x
+        sta bullet0+3,x
+	;jmp .next
+.next
+        inx
+        inx
+        inx
+        inx
+        cpx #$14
+        bne .bullet_loop
+.done
+	rts
+
+
+player_bullets_demo_update: subroutine
+
+	; bullet 0
+        ; check if fire is pressed
+        ; XXX not implemented
+        
+        ; check if bullet is despawned
+        lda bullet0 + 3
+        cmp #$00
+        bne .bullet0_spawned
+        lda player_b_d
+        cmp #$ff
+        bne .bullet0_done
+.bullet0_spawn
+	jsr apu_trigger_pewpew
+        lda player_x_hi
+        sta bullet0 + 3
+        lda player_y_hi
+        clc
+        adc #$04
+        sta bullet0 + 0
+        lda player_bullet_sprite
+        sta bullet0 + 1
+        lda #$03
+        sta bullet0 + 2
+.bullet0_spawned
+        ; update x
+        lda bullet0 + 3
+        sec
+        ;sbc #$07
+        sbc #$04
+        sta bullet0 + 3
+        ; despawn if less than 0
+        bcc .bullet0_despawn
+        ; sprite
+        lda #$79
+        sta bullet0 + 1
+        jmp .bullet0_done
+.bullet0_despawn
+	jsr bullet0_despawn
+.bullet0_done
+
+        
+	; bullet 1
+        ; check if fire is pressed
+        ; check if player_power is > 1
+        ; XXX not implemented
+        
+        ; check if bullet is despawned
+        lda bullet1 + 3
+        cmp #$00
+        bne .bullet1_spawned
+        lda player_b_d
+        cmp #$ff
+        bne .bullet1_done
+.bullet1_spawn
+	jsr apu_trigger_pewpew
+        lda player_x_hi
+        sta bullet1 + 3
+        lda player_y_hi
+        clc
+        adc #$04
+        sta bullet1 + 0
+        lda player_bullet_sprite
+        sta bullet1 + 1
+        lda #$03
+        sta bullet1 + 2
+.bullet1_spawned
+        ; update x
+        lda bullet1 + 3
+        sec
+        ;sbc #$06
+        sbc #$03
+        sta bullet1 + 3
+        ; despawn if less than 0
+        bcc .bullet1_despawn
+        sta bullet1 + 3
+        ; update y
+        lda bullet1 + 0
+        sec
+        sbc #$02
+        ;sbc #$03
+        sta bullet1 + 0
+        ; despawn if less than 0
+        bcc .bullet1_despawn
+        ; sprite
+        lda #$79
+        sta bullet1 + 1
+        jmp .bullet1_done
+.bullet1_despawn
+	lda #$00
+        sta bullet1
+        sta bullet1 + 3
+        lda #$80
+        sta bullet1 + 1
+.bullet1_done
+
+     
+	; bullet 2
+        ; check if fire is pressed
+        ; check if player_power is > 2
+        ; XXX not implemented
+        
+        ; check if bullet is despawned
+        lda bullet2 + 3
+        cmp #$00
+        bne .bullet2_spawned
+        lda player_b_d
+        cmp #$ff
+        bne .bullet2_done
+.bullet2_spawn
+	jsr apu_trigger_pewpew
+        lda player_x_hi
+        sta bullet2 + 3
+        lda player_y_hi
+        clc
+        adc #$04
+        sta bullet2 + 0
+        lda player_bullet_sprite
+        sta bullet2 + 1
+        lda #$03
+        sta bullet2 + 2
+.bullet2_spawned
+        ; update x
+        lda bullet2 + 3
+        sec
+        ;sbc #$06
+        sbc #$03
+        sta bullet2 + 3
+        ; despawn if less than 0
+        bcc .bullet2_despawn
+        sta bullet2 + 3
+        ; update y
+        lda bullet2 + 0
+        clc
+        ;adc #$03
+        adc #$01
+        sta bullet2 + 0
+        cmp sprite_0_y	;y
+        ; despawn if lower than hud pos
+        bcs .bullet2_despawn
+        ; sprite
+        lda #$79
+        sta bullet2 + 1
+        jmp .bullet2_done
+.bullet2_despawn
+	lda #$00
+        sta bullet2
+        sta bullet2 + 3
+        lda #$80
+        sta bullet2 + 1
+.bullet2_done
+
+        
+	; bullet 3
+        ; check if fire is pressed
+        ; check if player_power is > 3
+        ; XXX not implemented
+        
+        ; check if bullet is despawned
+        lda bullet3 + 3
+        cmp #$00
+        bne .bullet3_spawned
+        lda player_b_d
+        cmp #$ff
+        bne .bullet3_done
+.bullet3_spawn
+	jsr apu_trigger_pewpew
+        lda player_x_hi
+        sta bullet3 + 3
+        lda player_y_hi
+        clc
+        adc #$04
+        sta bullet3 + 0
+        lda player_bullet_sprite
+        sta bullet3 + 1
+        lda #$03
+        sta bullet3 + 2
+.bullet3_spawned
+        ; update x
+        lda bullet3 + 3
+        sec
+        ;sbc #$03
+        sbc #$01
+        sta bullet3 + 3
+        ; despawn if less than 0
+        bcc .bullet3_despawn
+        sta bullet3 + 3
+        ; update y
+        lda bullet3 + 0
+        sec
+        ;sbc #$06
+        sbc #$03
+        sta bullet3 + 0
+        ; despawn if less than 0
+        bcc .bullet3_despawn
+        ; sprite
+        lda #$79
+        sta bullet3 + 1
+        jmp .bullet3_done
+.bullet3_despawn
+	lda #$00
+        sta bullet3
+        sta bullet3 + 3
+        lda #$80
+        sta bullet3 + 1
+.bullet3_done
+
+
+	; bullet 4
+        ; check if fire is pressed
+        ; check if player_power is > 4
+        ; XXX not implemented
+        
+        ; check if bullet is despawned
+        lda bullet4 + 3
+        cmp #$00
+        bne .bullet4_spawned
+        lda player_b_d
+        cmp #$ff
+        bne .bullet4_done
+.bullet4_spawn
+	jsr apu_trigger_pewpew
+        lda player_x_hi
+        sta bullet4 + 3
+        lda player_y_hi
+        clc
+        adc #$04
+        sta bullet4 + 0
+        lda player_bullet_sprite
+        sta bullet4 + 1
+        lda #$03
+        sta bullet4 + 2
+.bullet4_spawned
+        ; update x
+        lda bullet4 + 3
+        sec
+        ;sbc #$03
+        sbc #$01
+        sta bullet4 + 3
+        ; despawn if less than 0
+        bcc .bullet4_despawn
+        sta bullet4 + 3
+        ; update y
+        lda bullet4 + 0
+        clc
+        ;adc #$06
+        adc #$04
+        sta bullet4 + 0
+        cmp sprite_0_y	;y
+        ; despawn if lower than hud pos
+        bcs .bullet4_despawn
+        ; sprite
+        lda #$79
+        sta bullet4 + 1
+        jmp .bullet4_done
+.bullet4_despawn
+	lda #$00
+        sta bullet4
+        sta bullet4 + 3
+        lda #$80
+        sta bullet4 + 1
+.bullet4_done
+	rts
+        

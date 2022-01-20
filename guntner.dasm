@@ -1,0 +1,475 @@
+
+	include "nesdefs.dasm"
+
+
+;;;;; VARIABLES
+
+	seg.u ZEROPAGE
+	org $0
+
+nmi_lockout	byte
+sprite_0_y	byte
+scroll_x	byte
+scroll_page	byte
+scroll_y	byte
+wtf		byte
+game_mode	byte
+scroll_speed	byte
+scroll_speed_m	byte
+bg_tile_default	byte
+player_health	byte
+player_lives	byte
+player_heal_c	byte
+player_demo_x	byte
+player_demo_y	byte
+player_demo_lr	byte
+player_demo_ud	byte
+
+player_x	byte
+player_y	byte
+
+player_x_hi	byte
+player_x_lo	byte
+player_y_hi	byte
+player_y_lo	byte
+player_speed	byte ; 2 bit value 0..3 translates to 1..4
+player_paused	byte
+player_controls	byte
+player_up	byte
+player_up_d	byte
+player_right	byte
+player_right_d	byte
+player_down	byte
+player_down_d	byte
+player_left	byte
+player_left_d	byte
+player_select	byte
+player_select_d	byte
+player_start	byte
+player_start_d	byte
+player_b	byte
+player_b_d	byte
+player_a	byte
+player_a_d	byte
+player_dir_bits	byte ; matches controller
+player_boundless	byte
+
+rng0		byte
+rng1		byte
+rng2		byte
+starfield_col	byte
+starfield_rng	byte
+starfield_page	byte
+starfield_tile	byte
+starfield_col0	byte
+starfield_col1	byte
+bullet_cooldown byte ; count frames until next bullet
+collision_0_x	byte
+collision_0_y	byte
+collision_0_w	byte
+collision_0_h	byte
+collision_1_x	byte
+collision_1_y	byte
+collision_1_w	byte
+collision_1_h	byte
+
+score_lo_byte	byte
+score_hi_byte	byte
+score_1		byte
+score_10	byte
+score_100	byte
+score_1000	byte
+score_10000	byte
+score_100000	byte
+score_1000000	byte
+score_10000000	byte
+score_00	byte
+score_00__	byte
+score_00____	byte
+score_00______	byte
+
+lifebar0	byte
+lifebar1	byte
+lifebar2	byte
+lifebar3	byte
+lifebar4	byte
+lifebar5	byte
+lifebar6	byte
+lifebar7	byte
+lifebar8	byte
+lifebar9	byte
+lifebara	byte
+lifebarb	byte
+lifebarc	byte
+lifebard	byte
+lifebare	byte
+lifebarf	byte
+
+
+timer_frames_1s		byte
+timer_frames_10s	byte
+timer_seconds_1s	byte
+timer_seconds_10s	byte
+timer_minutes_1s	byte
+timer_minutes_10s	byte
+
+title_screen_chord_played	byte
+title_screen_color	byte
+title_temp	byte
+
+enemy_temp_addr_lo	byte
+enemy_temp_addr_hi	byte
+enemy_temp_oam_x	byte
+enemy_temp_palette	byte
+enemy_temp_temp		byte
+enemy_handler_pos	byte
+
+player_color0	byte
+player_color1	byte
+player_color2	byte
+player_damage		byte
+player_death_flag	byte
+
+player_bullet_collision_temp_x	byte
+
+you_dead_counter	byte
+
+phase_kill_count	byte
+phase_current		byte
+phase_state		byte
+phase_temp_addr_lo	byte
+phase_temp_addr_hi	byte
+phase_end_game		byte
+
+audio_noise_mode	byte
+audio_noise_pitch	byte
+audio_noise_volume	byte
+audio_frame_counter     byte
+audio_root_tone         byte
+audio_pattern_pos	byte
+audio_pattern_num       byte
+
+;;;;; NES CARTRIDGE HEADER
+
+	NES_HEADER 0,1,1,NES_MIRR_VERT ; mapper 0, 1 PRGs, 1 CHR
+
+;;;;; START OF CODE
+
+Start:	subroutine
+	NES_INIT	; set up stack pointer, turn off PPU
+        jsr WaitSync	; wait for VSYNC
+; CLEAR CPU RAM
+        ldx #$00
+        txa
+        sta title_screen_color
+RAM_init_clear:
+	sta $000,x
+	sta $100,x
+	sta $200,x	; PPU OAM sprite data
+	sta $300,x	; bullet / enemy data?
+	sta $400,x
+	sta $500,x
+	sta $600,x
+	sta $700,x
+        inx
+        bne RAM_init_clear
+;        jsr ClearRAM	; clear RAM
+        jsr WaitSync	; wait for VSYNC (and PPU warmup)
+	jsr PPU_init
+        jsr apu_init
+
+; MY SETUP
+        jsr SetPalette 
+        jsr player_bullets_init
+;============================== M O D E   I N I T   H E R E
+        jsr title_screen_init
+        ;jsr sandbox_init
+        
+ 	; set default speed
+        lda #$02
+        sta player_speed
+        
+        
+        ; reinitializing lives left
+        ; so timer will run on title screen
+        ; XXX need a cleanup of this
+        ; very spaghetti
+        lda #$05
+        sta player_lives
+        
+; set default player colors
+	lda #$14
+        sta player_color0
+	lda #$21
+        sta player_color1
+	lda #$37
+        sta player_color2
+	jsr player_update_colors
+        
+        
+        ; set hud y pos
+        lda #182
+        sta sprite_0_y
+     	; setup rng
+        lda #$01
+        sta rng0
+        sta rng1
+        lda #$ff
+        sta rng2
+        
+        
+; activate PPU graphics       
+	; enable rendering
+        lda #MASK_BG|MASK_SPR
+        sta PPU_MASK	
+        ; enable NMI
+        lda #$00
+        sta nmi_lockout
+        lda #CTRL_NMI|CTRL_BG_1000
+        sta PPU_CTRL	
+.endless
+	jmp .endless	; endless loop
+
+
+
+; set palette colors
+SetPalette: subroutine
+; set PPU address to palette start
+	PPU_SETADDR $3f00
+        ldy #0
+.loop:
+	lda Palette00,y	; lookup byte in ROM
+	sta PPU_DATA	; store byte to PPU data
+        iny		; Y = Y + 1
+        cpy #32		; is Y equal to 32?
+	bne .loop	; not yet, loop
+        rts		; return to caller
+       
+       
+ 
+; SPRITE HANDLINGS
+        
+        ; set sprite 0
+SetSprite0: subroutine
+        lda sprite_0_y	;y
+	sta $200
+        lda #$f0	;tile
+        sta $201
+        lda #$20	;flags
+        sta $202
+        lda #$01	;xpos
+        sta $203
+	rts
+        
+
+        
+
+
+;;;;; INTERRUPT HANDLERS
+
+NMIHandler: subroutine
+
+	SAVE_REGS
+        
+; enable NMI lockout
+	lda nmi_lockout
+        cmp #$00
+        beq .no_lock
+        jmp .NMI_end
+.no_lock
+        inc nmi_lockout
+        
+        
+; load sprites
+	lda #$02
+        sta PPU_OAM_DMA
+        
+        
+; main game logic
+        jsr mode_handler_vblank
+        
+        
+	lda scroll_page
+        and #$01
+        ora #CTRL_NMI|CTRL_BG_1000
+        sta PPU_CTRL
+; TOP SCROLL
+	bit PPU_STATUS
+        lda scroll_y
+        sta PPU_SCROLL
+        lda #$f8
+        sta PPU_SCROLL
+        
+; SPRITES TIME!!
+        jsr SetSprite0
+        
+        
+; main game logic
+        jsr mode_handler_post_vblank
+               
+; SPRITE 0 WAIT TIME!!!
+.wait0	bit PPU_STATUS
+        bvs .wait0
+        lda #$c0
+.wait1	bit PPU_STATUS
+        beq .wait1
+        ; reset palette
+        ;jsr SetPalette
+
+; HUD POSITIONING
+; set PPU_ADDR.1
+        bit PPU_STATUS
+; set PPU_SCROLL.1
+        lda #$00
+        sta PPU_SCROLL
+; set PPU_SCROLL.2
+        lda #$00
+        sta PPU_SCROLL
+; disable page 2 for HUD
+	lda #$00
+        ora #CTRL_NMI|CTRL_BG_1000
+        sta PPU_CTRL
+        
+; update dashboard tiles 
+	jsr mode_handler_post_split
+        
+; read Player Controls
+        jsr player_controls_read
+        
+; update global time
+	jsr timer_update 
+
+        
+; rng updates
+	inc wtf
+	lda rng0
+        jsr NextRandom
+        sta rng0
+	lda rng1
+        jsr PrevRandom
+        sta rng1
+	lda rng2
+        jsr NextRandom
+        sta rng2
+
+; disable NMI lockout
+        lda #$00
+        sta nmi_lockout
+        
+                
+.NMI_end
+	RESTORE_REGS
+	rti
+        
+        
+; all includes      
+
+	
+	include "apu_handler.dasm"
+        nop	; how much prg space we using?   
+
+	include "ppu_init.dasm"
+        nop	; how much prg space we using?      
+
+	include "nesppu.dasm"
+        nop	; how much prg space we using?  
+        
+	include "collision_detection.dasm"
+        nop	; how much prg space we using?
+        
+	include "dashboard.dasm"
+        nop	; how much prg space we using?
+        
+	include "demo_mode.dasm"
+        nop	; how much prg space we using?
+        
+	include "enemy_tables.dasm"
+        nop	; how much prg space we using?
+	include "enemy_handler.dasm"
+        nop	; how much prg space we using?
+	include "enemy_handler_birb.dasm"
+        nop	; how much prg space we using?
+	include "enemy_handler_maggs.dasm"
+        nop	; how much prg space we using?
+	include "enemy_handler_skully.dasm"
+        nop	; how much prg space we using?
+	include "enemy_handler_starglasses.dasm"
+        nop	; how much prg space we using?
+        
+	include "powerups.asm"
+        nop	; how much prg space we using?
+
+        
+	include "game_mode.dasm"
+        nop	; how much prg space we using?
+        
+	include "mode_handler.dasm"
+        nop	; how much prg space we using?
+        
+	include "sandbox_mode.dasm"
+        nop	; how much prg space we using?
+
+        
+	include "phases_and_levels.dasm"
+        nop	; how much prg space we using?
+	include "phase_table.dasm"
+        nop	; how much prg space we using?
+
+        
+	include "player_main.dasm"
+        nop	; how much prg space we using?
+	include "player_bullets.dasm"
+        nop	; how much prg space we using?
+	include "player_controls.dasm"
+        nop	; how much prg space we using?
+	include "player_movement.dasm"
+        nop	; how much prg space we using?
+	include "player_points.dasm"
+        nop	; how much prg space we using?
+        
+	include "starfield.dasm"
+        nop	; how much prg space we using?
+        
+	include "timer_global.dasm"
+        nop	; how much prg space we using?
+        
+	include "title_screen.dasm"
+        nop	; how much prg space we using?
+
+
+        
+; LOOKUP TABLES AT TOP OF RAM
+        org $fa00
+	include "sine.dasm"
+        nop	; how much prg space we using?
+	include "decimal_table.dasm"
+        nop	; how much prg space we using?
+	include "scale_table.dasm"
+        nop	; how much prg space we using?
+
+
+
+        
+Palette00:
+	hex 1f		;screen color
+	hex 02283000	;background 0
+        hex 07162400	;background 1
+        hex 02113c00	;background 2
+        hex 0b1a3b1d	;background 3
+        hex 19293900	;sprite 0
+        hex 13213000	;sprite 1
+        hex 07172700	;sprite 2
+        hex 013530	;sprite 3
+        
+        nop	; how much prg space we using?
+        
+
+
+
+;;;;; CPU VECTORS
+	org $ffff
+	NES_VECTORS
+
+;;;;; GRAPHX
+	org $10000
+	incbin "grafx4.chr"
